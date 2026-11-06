@@ -1,0 +1,162 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #14161a;
+  font-family: system-ui, "Segoe UI", "Yu Gothic UI", sans-serif;
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+#stage.dragging {
+  cursor: grabbing;
+}
+
+.card {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 35%), 0 12px 48px rgb(0 0 0 / 45%);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.card iframe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  border: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.card.ready iframe {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.card.ready .placeholder {
+  display: none;
+}
+
+.placeholder {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 48px;
+  box-sizing: border-box;
+  color: #555;
+  background: #f1f2f4;
+  font-size: 40px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.placeholder small {
+  font-size: 24px;
+  color: #888;
+}
+
+#hud {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(720px, calc(100vw - 32px));
+  padding: 6px 8px 6px 14px;
+  border-radius: 999px;
+  color: #eceef1;
+  background: rgb(20 22 26 / 88%);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 40%);
+  font-size: 13px;
+  white-space: nowrap;
+  user-select: none;
+}
+
+#hud-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#hud-depth,
+#hud-zoom {
+  color: #a8adb5;
+  font-variant-numeric: tabular-nums;
+}
+
+#hud button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  color: inherit;
+  background: transparent;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+#hud button:hover {
+  background: rgb(255 255 255 / 16%);
+}
+
+#hud #hud-overlap {
+  flex: none;
+  width: auto;
+  padding: 0 10px;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 30%);
+  font-size: 12px;
+}
+
+#hud #hud-overlap[aria-pressed="true"] {
+  color: #14161a;
+  background: #eceef1;
+  box-shadow: none;
+}
+
+.card-close {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #eceef1;
+  background: rgb(20 22 26 / 80%);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 40%);
+  font-size: 16px;
+  line-height: 24px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.card-close:hover {
+  background: #c62f2f;
+}
