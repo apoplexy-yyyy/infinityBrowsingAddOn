@@ -1,7 +1,10 @@
 // ビューアの直接の子フレームでだけ動く。通常のブラウジングには一切影響しない。
+// index.html のデモでは zbDemo を定義した iframe に読み込まれる(拡張の実行環境からは zbDemo は見えない)。
 (() => {
-  const viewerOrigin = chrome.runtime.getURL('').slice(0, -1);
-  if (window.parent === window || location.ancestorOrigins?.[0] !== viewerOrigin) return;
+  const demo = window.zbDemo;
+  const viewerOrigin = demo ? '*' : chrome.runtime.getURL('').slice(0, -1);
+  if (!demo && (window.parent === window || location.ancestorOrigins?.[0] !== viewerOrigin)) return;
+  const currentHref = () => (demo ? demo.url : location.href);
 
   const REPORT_W = 150; // 画面上でこの幅以上のリンクをビューアへ報告する
   const REPORT_MIN_SCALE = 1.25; // この倍率未満では新しく開くリンクを報告しない
@@ -33,7 +36,7 @@
     scanQueued = false;
     const cx = view.x + view.w / 2;
     const cy = view.y + view.h / 2;
-    const here = pageUrl(location.href);
+    const here = pageUrl(currentHref());
     const open = new Set(view.open);
     const nearest = new Map();
     for (const a of document.links) {
@@ -63,7 +66,7 @@
     for (const link of links) openPositions.set(link.href, { x: link.x, y: link.y });
     const report = JSON.stringify({
       type: 'links',
-      url: location.href,
+      url: currentHref(),
       title: document.title,
       scrollX,
       scrollY,
@@ -178,7 +181,7 @@
   const NO_SEPARATOR_IN = 'ul,ol,table,thead,tbody,tr,dl,select';
 
   const autoPage = {
-    visited: new Set([pageUrl(location.href)]),
+    visited: new Set([pageUrl(currentHref())]),
     nextUrl: undefined, // undefined は未検出、null はこれ以上ページがないことを表す
     container: null,
     prevDoc: null,
@@ -201,7 +204,7 @@
     for (const el of candidates) {
       try {
         const url = new URL(el.getAttribute('href'), base);
-        if (url.origin === location.origin && !autoPage.visited.has(pageUrl(url.href))) return url.href;
+        if (url.origin === new URL(currentHref()).origin && !autoPage.visited.has(pageUrl(url.href))) return url.href;
       } catch {
         // 不正な href は候補から外す
       }
@@ -291,17 +294,22 @@
     for (const node of nodes) container.insertBefore(prepareForInsert(node, url), before);
   }
 
+  async function fetchPage(url) {
+    if (demo) return { url, html: demo.fetchPage(url) };
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok || !/html/i.test(res.headers.get('content-type') || '')) throw new Error(res.status);
+    // res.text() は UTF-8 固定なので、Shift_JIS などのサイトでは文字化けする
+    return { url: res.url, html: new TextDecoder(document.characterSet).decode(await res.arrayBuffer()) };
+  }
+
   async function loadNextPage() {
     const url = autoPage.nextUrl;
     autoPage.busy = true;
     try {
-      const res = await fetch(url, { credentials: 'include' });
-      if (!res.ok || !/html/i.test(res.headers.get('content-type') || '')) throw new Error(res.status);
+      const res = await fetchPage(url);
       autoPage.visited.add(pageUrl(url));
       autoPage.visited.add(pageUrl(res.url));
-      // res.text() は UTF-8 固定なので、Shift_JIS などのサイトでは文字化けする
-      const html = new TextDecoder(document.characterSet).decode(await res.arrayBuffer());
-      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const doc = new DOMParser().parseFromString(res.html, 'text/html');
       const found = findContent(autoPage.prevDoc?.body || document.body, doc.body);
       if (!found) throw new Error('no content');
       autoPage.container ||= found.container;
@@ -327,7 +335,7 @@
       return;
     }
     if (autoPage.nextUrl === undefined) {
-      autoPage.nextUrl = findNextUrl(document, location.href);
+      autoPage.nextUrl = findNextUrl(document, currentHref());
       if (autoPage.nextUrl === null) return;
     }
     if (autoPage.quietTimer && autoPage.quietHeight === height) return;
@@ -470,7 +478,7 @@
       const a = e.target instanceof Element ? e.target.closest('a[href],area[href]') : null;
       if (!a || typeof a.href !== 'string' || a.hasAttribute('download')) return;
       // 同じページ内のリンクなどは通常どおり動かす
-      if (!/^https?:/.test(a.href) || pageUrl(a.href) === pageUrl(location.href)) return;
+      if (!/^https?:/.test(a.href) || pageUrl(a.href) === pageUrl(currentHref())) return;
       const r = a.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) return;
       e.preventDefault();
@@ -510,5 +518,5 @@
     queueScan();
   });
 
-  send({ type: 'hello', url: location.href });
+  send({ type: 'hello', url: currentHref() });
 })();

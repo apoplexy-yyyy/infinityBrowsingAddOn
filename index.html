@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>Infinite Zoom Browser デモ</title>
+    <link rel="stylesheet" href="viewer.css" />
+  </head>
+  <body>
+    <div id="stage"></div>
+    <div id="hud">
+      <span id="hud-depth"></span>
+      <span id="hud-title"></span>
+      <span id="hud-zoom"></span>
+      <button id="hud-overlap" type="button" aria-pressed="false" title="オンにするとリンクの右横に、ページに重ねて表示します。オフではページの外側の右横に表示します">重なりを許可</button>
+      <button id="hud-reset" title="最初のページの全体表示に戻る">⟲</button>
+      <button id="hud-open" title="表示中のページを新しいタブで開く" hidden>↗</button>
+      <button id="hud-exit" title="無限ズームを終了して表示中のページへ移動" hidden>✕</button>
+    </div>
+    <script src="demo-site.js"></script>
+    <script src="viewer.js"></script>
+  </body>
+</html>

@@ -24,6 +24,7 @@ const MAX_PAGE_H = 500000;
 const READY_TIMEOUT = 10000;
 const ZOOM_SPEED = 0.002;
 
+const demoSite = window.zbSite; // index.html のデモで実サイトの代わりに表示するサイト
 const stage = document.getElementById('stage');
 const hud = {
   depth: document.getElementById('hud-depth'),
@@ -86,6 +87,8 @@ function createCard(url, parent, link) {
     placeholder: document.createElement('div'),
   };
   card.el.className = 'card';
+  card.el.style.width = `${card.w}px`;
+  card.el.style.height = `${card.h}px`;
   card.placeholder.className = 'placeholder';
   card.placeholder.style.height = `${card.viewH}px`;
   card.placeholder.textContent = `読み込み中… ${new URL(url).host}`;
@@ -137,7 +140,8 @@ function loadFrame(card) {
   // allow-top-navigation を与えず、フレーム脱出スクリプトでビューアが置き換わるのを防ぐ
   frame.sandbox =
     'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads';
-  frame.src = card.url;
+  if (demoSite) frame.srcdoc = demoSite.render(card.url);
+  else frame.src = card.url;
   card.frame = frame;
   setFrameHeight(card, card.viewH);
   card.el.classList.remove('ready');
@@ -438,13 +442,14 @@ function manageFrames() {
 function render() {
   manageFrames();
   for (const card of cards) {
+    // 画面外でも正しい幅でレイアウトさせる。狭いままだと折り返しで高さを過大に報告してしまう
+    card.el.style.width = `${card.w}px`;
+    card.el.style.height = `${card.h}px`;
     const visible = isOnScreen(card) && card.s <= UNLOAD_SCALE && !isCovered(card);
     card.el.style.visibility = visible ? 'visible' : 'hidden';
     placeCloseButton(card, visible);
     if (!visible) continue;
 
-    card.el.style.width = `${card.w}px`;
-    card.el.style.height = `${card.h}px`;
     const transform = `translate(${card.x}px, ${card.y}px) scale(${card.s})`;
     if (transform !== card.lastTransform) {
       card.el.style.transform = transform;
@@ -676,12 +681,12 @@ async function allowFramingInThisTab() {
 }
 
 (async () => {
-  const url = new URLSearchParams(location.search).get('url');
+  const url = demoSite ? demoSite.startUrl : new URLSearchParams(location.search).get('url');
   if (!isHttpUrl(url)) {
     hud.title.textContent = 'http / https のページで拡張アイコンを押してください';
     return;
   }
-  await allowFramingInThisTab();
+  if (!demoSite) await allowFramingInThisTab();
   root = createCard(url, null, null);
   anchor = root;
   queueFrame();
