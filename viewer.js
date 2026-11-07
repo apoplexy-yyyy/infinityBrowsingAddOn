@@ -8,7 +8,10 @@ const UNLOAD_SCALE = 300; // 十分に拡大され隠れた祖先はメモリ節
 const RELOAD_SCALE = 100;
 const MIN_LOAD_W = 60; // これより小さく映るカードは読み直さない
 const MIN_CARD_RATIO = 0.5; // カードは親の半分より小さくしない。リンク幅だけで決めると階層ごとに極端に縮む
-const CLOSE_SIZE = 24; // ×ボタンの画面上の大きさ
+const CLOSE_SIZE = window.zbSite && matchMedia('(any-pointer: coarse)').matches ? 36 : 24; // ×ボタンの画面上の大きさ
+const TAP_MOVE = 8; // これ以上動いたらタップではなくドラッグとして扱う
+const TAP_TIME = 500;
+const ZOOM_OUT_HOLD = 300; // ピンチで縮小している間は新しいリンクを開かない
 const CLOSE_INSET = 4;
 const CLOSE_MIN_CARD_W = 48; // これより小さく映るカードには×ボタンを出さない
 const LINK_GAP = 0.5; // リンクとカードの間隔(リンクの高さに対する比率)
@@ -25,6 +28,9 @@ const READY_TIMEOUT = 10000;
 const ZOOM_SPEED = 0.002;
 
 const demoSite = window.zbSite; // index.html のデモで実サイトの代わりに表示するサイト
+// デモのページは同じオリジンなので、タッチ端末では操作をすべてビューアで受け、タップだけページへ渡す。
+// 指が複数の iframe にまたがっても、ピンチを1つの操作として扱える
+const touchMode = Boolean(demoSite) && matchMedia('(any-pointer: coarse)').matches;
 const stage = document.getElementById('stage');
 const hud = {
   depth: document.getElementById('hud-depth'),
@@ -38,6 +44,7 @@ let anchor = null; // カメラの基準カード。座標はここから相対�
 let zoomPending = 0;
 let zoomPivot = { x: 0, y: 0 };
 let frameQueued = false;
+let lastZoomOutAt = -Infinity;
 let allowOverlap = false;
 let pendingLink = null; // 開く直前のリンク { card, href, since }
 
@@ -333,10 +340,23 @@ function applyZoom() {
   }
   zoomPending -= step;
   if (Math.abs(zoomPending) < 1e-5) zoomPending = 0;
+  scaleCamera(step, zoomPivot.x, zoomPivot.y);
+}
+
+function scaleCamera(step, x, y) {
   const f = Math.exp(step);
-  anchor.x = zoomPivot.x - (zoomPivot.x - anchor.x) * f;
-  anchor.y = zoomPivot.y - (zoomPivot.y - anchor.y) * f;
+  anchor.x = x - (x - anchor.x) * f;
+  anchor.y = y - (y - anchor.y) * f;
   anchor.s *= f;
+}
+
+// ピンチは指に追従させるので、ホイールと違いなめらかにせずそのまま反映する
+function pinchZoom(step, x, y) {
+  const deepest = Math.min(...[...cards].filter(isOnScreen).map((c) => c.s));
+  if ((step > 0 && deepest >= MAX_SCALE) || (step < 0 && root.s <= minRootScale())) return;
+  if (step < 0) lastZoomOutAt = performance.now();
+  scaleCamera(step, x, y);
+  queueFrame();
 }
 
 function chooseAnchor() {
@@ -397,7 +417,9 @@ function forgetDismissedLinks() {
 
 function openNearestLink(now) {
   forgetDismissedLinks();
-  const found = zoomPending < 0 ? null : findNearestLink();
+  const zoomingOut = zoomPending < 0 || now - lastZoomOutAt < ZOOM_OUT_HOLD;
+  if (zoomingOut) setTimeout(queueFrame, ZOOM_OUT_HOLD + 10);
+  const found = zoomingOut ? null : findNearestLink();
   if (!found) {
     pendingLink = null;
     return;
@@ -527,24 +549,69 @@ window.addEventListener(
 );
 
 // 読み込み中のカードや余白の上ではカード内スクリプトが動かないので、ビューアが直接パンする
-let stageDrag = null;
+const pointers = new Map();
+let pinchDistance = 0;
+let tap = null;
+
+const pinchState = () => {
+  const [a, b] = [...pointers.values()];
+  return { distance: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+};
+
 stage.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
   stage.setPointerCapture(e.pointerId);
   stage.classList.add('dragging');
-  stageDrag = { x: e.clientX, y: e.clientY };
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  tap = pointers.size === 1 ? { x: e.clientX, y: e.clientY, at: e.timeStamp } : null;
+  if (pointers.size === 2) pinchDistance = pinchState().distance;
 });
 stage.addEventListener('pointermove', (e) => {
-  if (!stageDrag) return;
-  pan(e.clientX - stageDrag.x, e.clientY - stageDrag.y);
-  stageDrag = { x: e.clientX, y: e.clientY };
+  const pointer = pointers.get(e.pointerId);
+  if (!pointer) return;
+  if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) >= TAP_MOVE) tap = null;
+
+  if (pointers.size !== 2) {
+    if (!tap && pointers.size === 1) pan(e.clientX - pointer.x, e.clientY - pointer.y);
+    pointer.x = e.clientX;
+    pointer.y = e.clientY;
+    return;
+  }
+  const before = pinchState();
+  pointer.x = e.clientX;
+  pointer.y = e.clientY;
+  const after = pinchState();
+  pan(after.x - before.x, after.y - before.y);
+  if (pinchDistance > 0 && after.distance > 0) pinchZoom(Math.log(after.distance / pinchDistance), after.x, after.y);
+  pinchDistance = after.distance;
 });
-const endStageDrag = () => {
-  stageDrag = null;
+const endPointer = (e) => {
+  pointers.delete(e.pointerId);
+  if (pointers.size === 2) pinchDistance = pinchState().distance;
+  if (pointers.size > 0) return;
   stage.classList.remove('dragging');
+  if (e.type === 'pointerup' && touchMode && tap && e.timeStamp - tap.at < TAP_TIME) tapAt(tap.x, tap.y);
+  tap = null;
 };
-stage.addEventListener('pointerup', endStageDrag);
-stage.addEventListener('pointercancel', endStageDrag);
+stage.addEventListener('pointerup', endPointer);
+stage.addEventListener('pointercancel', endPointer);
+
+// 指の下にある要素へクリックを渡す。リンクなら content.js がカードとして開く
+function tapAt(x, y) {
+  const card = [...cards].reverse().find((c) => contains(c, x, y) && c.el.style.visibility !== 'hidden');
+  if (!card?.readyAt || !card.frame) return;
+  const doc = card.frame.contentDocument;
+  const el = doc?.elementFromPoint((x - card.x) / card.s, (y - card.y) / card.s);
+  if (!el) return;
+  if (el.matches('input,textarea,select,[contenteditable]')) el.focus();
+  el.click();
+}
+
+if (touchMode) {
+  document.body.classList.add('touch-mode');
+  // iOS の Safari はページ全体の拡大を viewport の指定だけでは止めない
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
+}
 
 const finite = (...values) => values.every(Number.isFinite);
 

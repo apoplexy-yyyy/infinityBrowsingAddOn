@@ -19,6 +19,23 @@ body {
   cursor: grabbing;
 }
 
+body.touch-mode .card.ready iframe {
+  pointer-events: none;
+}
+
+body.touch-mode .card-close {
+  width: 36px;
+  height: 36px;
+  font-size: 22px;
+  line-height: 36px;
+}
+
+body.touch-mode #hud {
+  bottom: max(16px, env(safe-area-inset-bottom));
+  gap: 6px;
+  padding-left: 10px;
+}
+
 .card {
   position: absolute;
   left: 0;
