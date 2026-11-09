@@ -27,7 +27,6 @@ const MAX_PAGE_H = 500000;
 const READY_TIMEOUT = 10000;
 const ZOOM_SPEED = 0.002;
 const FLY_EASE = 0.15; // 開いているページへ移動するときのカメラの追従率
-const FLY_FIT = 0.9; // 移動先のページ1画面分が画面に占める割合
 
 const demoSite = window.zbSite; // index.html のデモで実サイトの代わりに表示するサイト
 // デモのページは同じオリジンなので、タッチ端末では操作をすべてビューアで受け、タップだけページへ渡す。
@@ -372,7 +371,8 @@ function findOpenCard(card, href) {
   return [...card.children.values()].find(matches) || [...cards].find(matches);
 }
 
-// 移動先のページ1画面分が画面中央に収まるよう、カメラを少しずつ寄せる
+// 倍率は変えずに、移動先のページ1画面分が画面中央に来るようカメラを少しずつ動かす。
+// 画面より大きいときは左上を画面の左上に合わせる
 function applyFlight() {
   if (!flight) return;
   const card = flight.card;
@@ -381,11 +381,9 @@ function applyFlight() {
     return;
   }
   anchor = card;
-  const s = FLY_FIT * Math.min(innerWidth / card.w, innerHeight / card.viewH);
-  const x = (innerWidth - card.w * s) / 2;
-  const y = (innerHeight - card.viewH * s) / 2;
-  const done = Math.abs(Math.log(s / card.s)) < 0.002 && Math.hypot(x - card.x, y - card.y) < 0.5;
-  card.s = done ? s : card.s * Math.pow(s / card.s, FLY_EASE);
+  const x = Math.max(0, (innerWidth - card.w * card.s) / 2);
+  const y = Math.max(0, (innerHeight - card.viewH * card.s) / 2);
+  const done = Math.hypot(x - card.x, y - card.y) < 0.5;
   card.x = done ? x : card.x + (x - card.x) * FLY_EASE;
   card.y = done ? y : card.y + (y - card.y) * FLY_EASE;
   if (done) flight = null;

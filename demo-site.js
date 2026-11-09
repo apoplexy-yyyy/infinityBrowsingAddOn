@@ -38,7 +38,7 @@
       <h2>テーマ</h2>
       <ul>${Object.keys(TOPICS).map((key) => `<li>${topicLink(key)}</li>`).join('')}</ul>
       <h2>読み物</h2>
-      <p>${newsLink}(末尾まで進むと次のページが継ぎ足されます)</p>`);
+      <p>${newsLink}(末尾の「次へ」を押すか寄ると次のページが継ぎ足されます)</p>`);
   }
 
   function topic(key) {

@@ -9,6 +9,9 @@
   const REPORT_W = 150; // 画面上でこの幅以上のリンクをビューアへ報告する
   const REPORT_MIN_SCALE = 1.25; // この倍率未満では新しく開くリンクを報告しない
   const MAX_LINKS = 100;
+  // ビューアがリンク先を開くのと同じ条件で、「次へ」のリンクに寄ったら次のページを継ぎ足す
+  const NEXT_OPEN_W = 220;
+  const NEXT_OPEN_MIN_SCALE = 1.5;
   const DRAG_START = 4;
   const FEEDBACK_RATIO = 0.25;
   const PROBE_RATIO = 1.5;
@@ -39,20 +42,30 @@
     const here = pageUrl(currentHref());
     const open = new Set(view.open);
     const nearest = new Map();
+    const nextLinks = nextPageLinks();
+    let nextDist = Infinity;
+    let otherDist = Infinity;
     for (const a of document.links) {
       const href = a.href;
       if (!/^https?:/.test(href) || pageUrl(href) === here) continue;
       const r = a.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) continue;
+      const centerDist = Math.hypot(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy);
+      const onScreen = !(r.right < view.x || r.bottom < view.y || r.left > view.x + view.w || r.top > view.y + view.h);
+      const openable = onScreen && view.s >= NEXT_OPEN_MIN_SCALE && r.width * view.s >= NEXT_OPEN_W;
+      // 「次へ」はカードとして開かせず、継ぎ足しに使う
+      if (nextLinks.has(a)) {
+        if (openable) nextDist = Math.min(nextDist, centerDist);
+        continue;
+      }
+      if (openable && !open.has(href)) otherDist = Math.min(otherDist, centerDist);
       const isOpen = open.has(href);
       if (!isOpen) {
         if (view.s < REPORT_MIN_SCALE || r.width * view.s < REPORT_W) continue;
         if (r.right < 0 || r.bottom < 0 || r.left > innerWidth || r.top > innerHeight) continue;
       }
       const from = isOpen ? openPositions.get(href) : null;
-      const dist = from
-        ? Math.hypot(r.left - from.x, r.top - from.y)
-        : Math.hypot(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy);
+      const dist = from ? Math.hypot(r.left - from.x, r.top - from.y) : centerDist;
       const prev = nearest.get(href);
       if (!prev || dist < prev.dist) {
         nearest.set(href, { href, x: r.left, y: r.top, w: r.width, h: r.height, dist, isOpen });
@@ -77,7 +90,7 @@
       lastReport = report;
       send(JSON.parse(report));
     }
-    checkAutoPage();
+    if (nextDist < otherDist) requestNextPage();
   }
 
   function queueScan() {
@@ -169,10 +182,8 @@
   });
 
   // --- オートページャ ---
+  // 「次へ」のリンクを押すか寄ったときだけ、次のページを読み込んで継ぎ足す
   const MAX_AUTO_PAGES = 100;
-  const AUTOPAGE_QUIET = 1200; // ページ自身の無限スクロールと二重に読み込まないよう、伸びが止まるのを待つ
-  const AUTOPAGE_TRIGGER = 0.1; // 末尾がほぼ見えてから動く(ページ自身の無限スクロールに先を譲るため)
-  const AUTOPAGE_MIN_CARD_W = 100; // 小さく映っているだけのカードでは継ぎ足さない
   const DOMINANT_RATIO = 0.7;
   const NEXT_TEXT =
     /^[\s«‹<]*(次へ|次のページ|次ページ|次|次の\d+件|next|next page|older|older posts|›|»|→|>)[\s>›»→]*$/i;
@@ -187,13 +198,12 @@
     prevDoc: null,
     pages: 1,
     busy: false,
-    quietTimer: 0,
-    quietHeight: 0,
+    failed: false, // 継ぎ足せなかったページでは「次へ」を普通のリンクとして開く
   };
 
-  function findNextUrl(doc, base) {
+  function nextCandidates(doc) {
     const anchors = [...doc.querySelectorAll('a[href]')];
-    const candidates = [
+    return [
       ...doc.querySelectorAll('link[rel~="next" i][href],a[rel~="next" i][href]'),
       ...anchors.filter((a) => NEXT_TEXT.test(a.getAttribute('aria-label') || a.textContent)),
       ...doc.querySelectorAll(
@@ -201,7 +211,25 @@
           '[class*="pagination" i] [class*="next" i] a,[class*="pager" i] [class*="next" i] a'
       ),
     ];
-    for (const el of candidates) {
+  }
+
+  // 継ぎ足しに使う「次へ」のリンク。継ぎ足した後も残る元の「次へ」も含める
+  function nextPageLinks() {
+    if (autoPage.failed) return new Set();
+    const origin = new URL(currentHref()).origin;
+    return new Set(
+      nextCandidates(document).filter((el) => {
+        try {
+          return el.tagName === 'A' && new URL(el.href).origin === origin;
+        } catch {
+          return false;
+        }
+      })
+    );
+  }
+
+  function findNextUrl(doc, base) {
+    for (const el of nextCandidates(doc)) {
       try {
         const url = new URL(el.getAttribute('href'), base);
         if (url.origin === new URL(currentHref()).origin && !autoPage.visited.has(pageUrl(url.href))) return url.href;
@@ -319,33 +347,16 @@
       send({ type: 'appended' });
     } catch {
       autoPage.nextUrl = null;
+      autoPage.failed = autoPage.pages === 1;
     }
     autoPage.busy = false;
     queueScan();
   }
 
-  function checkAutoPage() {
-    if (probed !== true || !view.screenH || autoPage.busy || autoPage.nextUrl === null) return;
-    if (autoPage.pages >= MAX_AUTO_PAGES || innerWidth * view.s < AUTOPAGE_MIN_CARD_W) return;
-    const height = docHeight();
-    const gap = (height - (view.y + view.h)) * view.s;
-    if (gap >= view.screenH * AUTOPAGE_TRIGGER) {
-      clearTimeout(autoPage.quietTimer);
-      autoPage.quietTimer = 0;
-      return;
-    }
-    if (autoPage.nextUrl === undefined) {
-      autoPage.nextUrl = findNextUrl(document, currentHref());
-      if (autoPage.nextUrl === null) return;
-    }
-    if (autoPage.quietTimer && autoPage.quietHeight === height) return;
-    clearTimeout(autoPage.quietTimer);
-    autoPage.quietHeight = height;
-    autoPage.quietTimer = setTimeout(() => {
-      autoPage.quietTimer = 0;
-      if (docHeight() === autoPage.quietHeight) loadNextPage();
-      else queueScan();
-    }, AUTOPAGE_QUIET);
+  function requestNextPage() {
+    if (probed !== true || autoPage.busy || autoPage.pages >= MAX_AUTO_PAGES) return;
+    if (autoPage.nextUrl === undefined) autoPage.nextUrl = findNextUrl(document, currentHref());
+    if (autoPage.nextUrl) loadNextPage();
   }
 
   // --- ズーム ---
@@ -503,6 +514,10 @@
       const r = a.getBoundingClientRect();
       e.preventDefault();
       e.stopImmediatePropagation();
+      if (nextPageLinks().has(a)) {
+        requestNextPage();
+        return;
+      }
       openPositions.set(a.href, { x: r.left, y: r.top });
       send({ type: 'openLink', link: { href: a.href, x: r.left, y: r.top, w: r.width, h: r.height } });
     },
