@@ -426,12 +426,19 @@
   // カードとして開くリンク。シャドウ DOM の中のリンクも見つけられるよう、イベントの経路をたどる
   function cardLink(e) {
     if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return null;
-    const a = e.composedPath().find((el) => el instanceof Element && el.matches('a[href],area[href]'));
+    const path = e.composedPath();
+    const i = path.findIndex((el) => el instanceof Element && el.matches('a[href],area[href]'));
+    const a = path[i];
     if (!a || typeof a.href !== 'string' || a.hasAttribute('download')) return null;
     // 同じページ内のリンクなどは通常どおり動かす
     if (!/^https?:/.test(a.href) || pageUrl(a.href) === pageUrl(currentHref())) return null;
-    const r = a.getBoundingClientRect();
-    return r.width > 0 && r.height > 0 ? a : null;
+    // YouTube の動画プレビューのように、リンク自体は大きさ 0 で中身だけが表示されることがあるので、
+    // その場合は押された位置に近い中身の大きさを使う
+    for (const el of path.slice(0, i + 1).reverse()) {
+      const r = el instanceof Element ? el.getBoundingClientRect() : null;
+      if (r && r.width > 0 && r.height > 0) return { a, r };
+    }
+    return null;
   }
 
   // YouTube などはクリックを待たず、ボタンを押した・離した時点で自前の画面遷移を始めるので、
@@ -509,9 +516,9 @@
         return;
       }
       // 修飾キー付きのクリックは「新しいタブで開く」などブラウザの動作に任せる
-      const a = cardLink(e);
-      if (!a) return;
-      const r = a.getBoundingClientRect();
+      const link = cardLink(e);
+      if (!link) return;
+      const { a, r } = link;
       e.preventDefault();
       e.stopImmediatePropagation();
       if (nextPageLinks().has(a)) {
