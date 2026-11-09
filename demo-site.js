@@ -38,7 +38,7 @@
       <h2>テーマ</h2>
       <ul>${Object.keys(TOPICS).map((key) => `<li>${topicLink(key)}</li>`).join('')}</ul>
       <h2>読み物</h2>
-      <p>${newsLink}(末尾の「次へ」を押すか寄ると次のページが継ぎ足されます)</p>`);
+      <p>${newsLink}(末尾の「次へ」かページ番号を押すと次のページが継ぎ足されます)</p>`);
   }
 
   function topic(key) {
@@ -55,8 +55,11 @@
       const key = Object.keys(TOPICS)[(page + i) % 5];
       return `<div class="news"><a href="${ORIGIN}/topic/${key}">記事 ${page}-${i + 1}: ${TOPICS[key].name}を探検する</a></div>`;
     }).join('');
-    const next = page < NEWS_PAGES ? `<a rel="next" href="${ORIGIN}/news/${page + 1}">次へ</a>` : '';
-    return layout('探検ニュース', '#f4f4f6', `<main id="news">${items}</main><nav class="pagination">${next}</nav>`);
+    const numbers = Array.from({ length: NEWS_PAGES }, (_, i) =>
+      i + 1 === page ? `<b>${i + 1}</b>` : `<a href="${ORIGIN}/news/${i + 1}">${i + 1}</a>`
+    ).join(' ');
+    const next = page < NEWS_PAGES ? ` <a rel="next" href="${ORIGIN}/news/${page + 1}">次へ</a>` : '';
+    return layout('探検ニュース', '#f4f4f6', `<main id="news">${items}</main><nav class="pagination">${numbers}${next}</nav>`);
   }
 
   function pageBody(url) {

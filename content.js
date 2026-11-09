@@ -9,9 +9,6 @@
   const REPORT_W = 150; // 画面上でこの幅以上のリンクをビューアへ報告する
   const REPORT_MIN_SCALE = 1.25; // この倍率未満では新しく開くリンクを報告しない
   const MAX_LINKS = 100;
-  // ビューアがリンク先を開くのと同じ条件で、「次へ」のリンクに寄ったら次のページを継ぎ足す
-  const NEXT_OPEN_W = 220;
-  const NEXT_OPEN_MIN_SCALE = 1.5;
   const DRAG_START = 4;
   const FEEDBACK_RATIO = 0.25;
   const PROBE_RATIO = 1.5;
@@ -42,23 +39,12 @@
     const here = pageUrl(currentHref());
     const open = new Set(view.open);
     const nearest = new Map();
-    const nextLinks = nextPageLinks();
-    let nextDist = Infinity;
-    let otherDist = Infinity;
     for (const a of document.links) {
       const href = a.href;
       if (!/^https?:/.test(href) || pageUrl(href) === here) continue;
       const r = a.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) continue;
       const centerDist = Math.hypot(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy);
-      const onScreen = !(r.right < view.x || r.bottom < view.y || r.left > view.x + view.w || r.top > view.y + view.h);
-      const openable = onScreen && view.s >= NEXT_OPEN_MIN_SCALE && r.width * view.s >= NEXT_OPEN_W;
-      // 「次へ」はカードとして開かせず、継ぎ足しに使う
-      if (nextLinks.has(a)) {
-        if (openable) nextDist = Math.min(nextDist, centerDist);
-        continue;
-      }
-      if (openable && !open.has(href)) otherDist = Math.min(otherDist, centerDist);
       const isOpen = open.has(href);
       if (!isOpen) {
         if (view.s < REPORT_MIN_SCALE || r.width * view.s < REPORT_W) continue;
@@ -90,7 +76,6 @@
       lastReport = report;
       send(JSON.parse(report));
     }
-    if (nextDist < otherDist) requestNextPage();
   }
 
   function queueScan() {
@@ -182,7 +167,7 @@
   });
 
   // --- オートページャ ---
-  // 「次へ」のリンクを押すか寄ったときだけ、次のページを読み込んで継ぎ足す
+  // 「次へ」か、次のページへのリンク(ページ番号など)を押したときだけ、次のページを読み込んで継ぎ足す
   const MAX_AUTO_PAGES = 100;
   const DOMINANT_RATIO = 0.7;
   const NEXT_TEXT =
@@ -213,19 +198,16 @@
     ];
   }
 
-  // 継ぎ足しに使う「次へ」のリンク。継ぎ足した後も残る元の「次へ」も含める
-  function nextPageLinks() {
-    if (autoPage.failed) return new Set();
-    const origin = new URL(currentHref()).origin;
-    return new Set(
-      nextCandidates(document).filter((el) => {
-        try {
-          return el.tagName === 'A' && new URL(el.href).origin === origin;
-        } catch {
-          return false;
-        }
-      })
-    );
+  // 継ぎ足しに使うリンクか。継ぎ足した後も残る元の「次へ」も含める
+  function isNextPageLink(a) {
+    if (autoPage.failed) return false;
+    if (autoPage.nextUrl === undefined) autoPage.nextUrl = findNextUrl(document, currentHref());
+    if (autoPage.nextUrl && pageUrl(a.href) === pageUrl(autoPage.nextUrl)) return true;
+    try {
+      return new URL(a.href).origin === new URL(currentHref()).origin && nextCandidates(document).includes(a);
+    } catch {
+      return false;
+    }
   }
 
   function findNextUrl(doc, base) {
@@ -521,7 +503,7 @@
       const { a, r } = link;
       e.preventDefault();
       e.stopImmediatePropagation();
-      if (nextPageLinks().has(a)) {
+      if (isNextPageLink(a)) {
         requestNextPage();
         return;
       }
