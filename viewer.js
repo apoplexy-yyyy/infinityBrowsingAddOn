@@ -21,7 +21,7 @@ const ALLOW_OVERLAP_KEY = 'allowOverlap';
 const PUSH_PASSES = 20;
 const PUSH_EASE = 0.25;
 const MIN_ROOT_SCALE = 0.1;
-// 最初のページの初期倍率。ブラウザの縮小表示と同じく、画面いっぱいに広い幅でレイアウトする
+// 最初のページの初期倍率。レイアウトの幅は画面と同じままで、空いた右側と下側にリンク先が開ける
 const INITIAL_SCALE = 0.67;
 const MAX_SCALE = 40;
 const PAGE_H_STEP = 20000; // ページ自身の無限スクロールが一気に走らないよう、末尾に近づいた分だけ上限を広げる
@@ -713,6 +713,9 @@ window.addEventListener('message', (e) => {
     if (card.h < card.maxH) card.frozen = true;
   } else if (data.type === 'appended') {
     card.frozen = false;
+  } else if (data.type === 'unfreeze') {
+    card.frozen = false;
+    growToDocument(card);
   } else if (data.type === 'links' && Array.isArray(data.links)) {
     card.links = data.links.filter(
       (l) => l && isHttpUrl(l.href) && finite(l.x, l.y, l.w, l.h) && l.w > 0
@@ -740,8 +743,8 @@ window.addEventListener('message', (e) => {
 });
 
 function fitRootToWindow() {
-  root.w = innerWidth / INITIAL_SCALE;
-  root.viewH = innerHeight / INITIAL_SCALE;
+  root.w = innerWidth;
+  root.viewH = innerHeight;
   root.placeholder.style.height = `${root.viewH}px`;
   root.h = Math.max(root.h, root.viewH);
   setFrameHeight(root, root.h);

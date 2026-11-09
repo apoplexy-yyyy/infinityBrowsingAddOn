@@ -11,6 +11,12 @@
   const MAX_LINKS = 100;
   const DRAG_START = 4;
   const FEEDBACK_RATIO = 0.25;
+  // 読み込み中に伸びただけのページを止めたままにしないよう、落ち着いてから少し伸ばして確かめる。
+  // 伸ばした分とほぼ同じだけ文書も伸びたときだけ連動と見なす(伸びが小さければいずれ収まる)
+  const VERIFY_QUIET = 1500;
+  const VERIFY_GROW = 200;
+  const VERIFY_RATIO = 0.95;
+  const MAX_VERIFY = 5;
   const PROBE_RATIO = 1.5;
   const PROBE_TIMEOUT = 500;
   const PROBE_MAX_PASSES = 10;
@@ -23,6 +29,8 @@
   let scanQueued = false;
   let probed = false;
   let lastInnerHeight = innerHeight;
+  let verifying = false;
+  let verifyCount = 0;
   const openPositions = new Map(); // 開いたリンクの現在位置。同じ URL のリンクが複数あるときの取り違えを防ぐ
 
   function pageUrl(url) {
@@ -101,10 +109,43 @@
     // 伸ばした直後に文書が伸び幅に比例して長いままなら、高さがフレームに連動している。伸ばし続けないよう止める
     const grown = innerHeight - lastInnerHeight;
     lastInnerHeight = innerHeight;
-    if (probed === true && grown > 1 && docHeight() - innerHeight > grown * FEEDBACK_RATIO) send({ type: 'freeze' });
     queueScan();
+    if (probed !== true || verifying || grown <= 1) return;
+    // スクリプトで大きさを決めるページもあるので、描き直されるのを待ってから比べる
+    nextFrame().then(() => {
+      if (verifying || docHeight() - innerHeight <= grown * FEEDBACK_RATIO) return;
+      send({ type: 'freeze' });
+      if (verifyCount < MAX_VERIFY) verifyFeedback();
+    });
   });
   addEventListener('load', queueScan);
+
+  const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+  async function waitForQuiet() {
+    for (let last = -1; last !== docHeight(); ) {
+      last = docHeight();
+      await new Promise((resolve) => setTimeout(resolve, VERIFY_QUIET));
+    }
+  }
+
+  async function verifyFeedback() {
+    verifying = true;
+    verifyCount++;
+    await waitForQuiet();
+    const doc = docHeight();
+    const frame = innerHeight;
+    send({ type: 'probe', h: frame + VERIFY_GROW });
+    await waitForResize();
+    await nextFrame();
+    const grown = innerHeight - frame;
+    const linked = grown > 0 && docHeight() - doc >= grown * VERIFY_RATIO;
+    send({ type: 'probeDone' });
+    await waitForResize();
+    lastInnerHeight = innerHeight;
+    verifying = false;
+    if (!linked) send({ type: 'unfreeze' });
+  }
 
   // --- 縦長表示の準備 ---
   // フレームを文書の全長まで伸ばすと 100vh の要素まで一緒に伸びるため、先にフレームを少し伸ばして
@@ -526,7 +567,8 @@
   const style = document.createElement('style');
   // スクロールバーの有無で横幅が変わると、高さの連動を正しく検出できないので常に隠す
   style.textContent =
-    'iframe,embed,object{pointer-events:none!important}html{cursor:grab;scrollbar-width:none}html:active{cursor:grabbing}';
+    'iframe,embed,object{pointer-events:none!important}html{cursor:grab}html:active{cursor:grabbing}' +
+    'html,body{scrollbar-width:none!important}html::-webkit-scrollbar,body::-webkit-scrollbar{display:none!important}';
   document.documentElement.append(style);
 
   addEventListener('DOMContentLoaded', () => {
