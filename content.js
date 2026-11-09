@@ -412,6 +412,27 @@
     return pan + rest;
   }
 
+  // カードとして開くリンク。シャドウ DOM の中のリンクも見つけられるよう、イベントの経路をたどる
+  function cardLink(e) {
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return null;
+    const a = e.composedPath().find((el) => el instanceof Element && el.matches('a[href],area[href]'));
+    if (!a || typeof a.href !== 'string' || a.hasAttribute('download')) return null;
+    // 同じページ内のリンクなどは通常どおり動かす
+    if (!/^https?:/.test(a.href) || pageUrl(a.href) === pageUrl(currentHref())) return null;
+    const r = a.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 ? a : null;
+  }
+
+  // YouTube などはクリックを待たず、ボタンを押した・離した時点で自前の画面遷移を始めるので、
+  // リンク上の押す・離す操作はページへ渡さない。click はブラウザが別に発生させるので下で受け取れる
+  const hideFromPage = (e) => {
+    if (cardLink(e)) e.stopImmediatePropagation();
+  };
+  addEventListener('pointerdown', hideFromPage, true);
+  addEventListener('pointerup', hideFromPage, true);
+  addEventListener('touchstart', hideFromPage, true);
+  addEventListener('touchend', hideFromPage, true);
+
   addEventListener(
     'mousedown',
     (e) => {
@@ -423,6 +444,7 @@
         chain: scrollableChain(e.target),
         carry: { x: 0, y: 0 },
       };
+      hideFromPage(e);
     },
     true
   );
@@ -458,6 +480,8 @@
         setTimeout(() => (suppressClick = false));
         e.preventDefault();
         e.stopImmediatePropagation();
+      } else {
+        hideFromPage(e);
       }
       drag = null;
     },
@@ -474,13 +498,9 @@
         return;
       }
       // 修飾キー付きのクリックは「新しいタブで開く」などブラウザの動作に任せる
-      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-      const a = e.target instanceof Element ? e.target.closest('a[href],area[href]') : null;
-      if (!a || typeof a.href !== 'string' || a.hasAttribute('download')) return;
-      // 同じページ内のリンクなどは通常どおり動かす
-      if (!/^https?:/.test(a.href) || pageUrl(a.href) === pageUrl(currentHref())) return;
+      const a = cardLink(e);
+      if (!a) return;
       const r = a.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       openPositions.set(a.href, { x: r.left, y: r.top });

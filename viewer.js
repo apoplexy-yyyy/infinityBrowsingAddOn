@@ -713,7 +713,14 @@ window.addEventListener('message', (e) => {
       if (child) positionChild(child, link);
     }
     card.title = String(data.title || '');
-    if (isHttpUrl(data.url)) card.currentUrl = data.url;
+    if (isHttpUrl(data.url)) {
+      // 再読み込みせずに URL だけ切り替えるサイトでは、hello が来ないのでここで遷移に気づく
+      if (card.currentUrl && withoutHash(card.currentUrl) !== withoutHash(data.url)) {
+        for (const child of [...card.children.values()]) closeCard(child);
+        card.dismissed.clear();
+      }
+      card.currentUrl = data.url;
+    }
     if (finite(data.scrollX, data.scrollY)) card.scroll = { x: data.scrollX, y: data.scrollY };
     if (finite(data.docHeight)) {
       card.docHeight = data.docHeight;
