@@ -26,6 +26,8 @@ const PAGE_H_STEP = 20000; // ページ自身の無限スクロールが一気�
 const MAX_PAGE_H = 500000;
 const READY_TIMEOUT = 10000;
 const ZOOM_SPEED = 0.002;
+const FLY_EASE = 0.15; // 開いているページへ移動するときのカメラの追従率
+const FLY_FIT = 0.9; // 移動先のページ1画面分が画面に占める割合
 
 const demoSite = window.zbSite; // index.html のデモで実サイトの代わりに表示するサイト
 // デモのページは同じオリジンなので、タッチ端末では操作をすべてビューアで受け、タップだけページへ渡す。
@@ -47,6 +49,7 @@ let frameQueued = false;
 let lastZoomOutAt = -Infinity;
 let allowOverlap = false;
 let pendingLink = null; // 開く直前のリンク { card, href, since }
+let flight = null; // 開いているページへの移動中 { card }
 
 const isHttpUrl = (url) => {
   try {
@@ -355,8 +358,38 @@ function pinchZoom(step, x, y) {
   const deepest = Math.min(...[...cards].filter(isOnScreen).map((c) => c.s));
   if ((step > 0 && deepest >= MAX_SCALE) || (step < 0 && root.s <= minRootScale())) return;
   if (step < 0) lastZoomOutAt = performance.now();
+  flight = null;
   scaleCamera(step, x, y);
   queueFrame();
+}
+
+const withoutHash = (url) => url.split('#')[0];
+
+// 同じページを開いたカードを探す。クリックしたページの子を優先する
+function findOpenCard(card, href) {
+  const url = withoutHash(href);
+  const matches = (c) => withoutHash(c.currentUrl || c.url) === url;
+  return [...card.children.values()].find(matches) || [...cards].find(matches);
+}
+
+// 移動先のページ1画面分が画面中央に収まるよう、カメラを少しずつ寄せる
+function applyFlight() {
+  if (!flight) return;
+  const card = flight.card;
+  if (!cards.has(card)) {
+    flight = null;
+    return;
+  }
+  anchor = card;
+  const s = FLY_FIT * Math.min(innerWidth / card.w, innerHeight / card.viewH);
+  const x = (innerWidth - card.w * s) / 2;
+  const y = (innerHeight - card.viewH * s) / 2;
+  const done = Math.abs(Math.log(s / card.s)) < 0.002 && Math.hypot(x - card.x, y - card.y) < 0.5;
+  card.s = done ? s : card.s * Math.pow(s / card.s, FLY_EASE);
+  card.x = done ? x : card.x + (x - card.x) * FLY_EASE;
+  card.y = done ? y : card.y + (y - card.y) * FLY_EASE;
+  if (done) flight = null;
+  else queueFrame();
 }
 
 function chooseAnchor() {
@@ -515,24 +548,27 @@ function updateHud() {
 
 function tick(now) {
   frameQueued = false;
+  applyFlight();
   applyZoom();
   layoutChildren(root);
   propagate(anchor, null);
   chooseAnchor();
   render();
-  openNearestLink(now);
+  if (!flight) openNearestLink(now);
   updateHud();
   if (zoomPending !== 0) queueFrame();
 }
 
 // --- 入力 ---
 function addZoom(dy, x, y) {
+  flight = null;
   zoomPending -= dy * ZOOM_SPEED;
   zoomPivot = { x, y };
   queueFrame();
 }
 
 function pan(dx, dy) {
+  if (dx || dy) flight = null;
   anchor.x += dx;
   anchor.y += dy;
   queueFrame();
@@ -650,7 +686,14 @@ window.addEventListener('message', (e) => {
     const link = data.link;
     if (!link || !isHttpUrl(link.href) || !finite(link.x, link.y, link.w, link.h) || link.w <= 0) return;
     card.dismissed.delete(link.href);
-    if (card.children.has(link.href) || !makeRoomForFrame()) return;
+    const opened = findOpenCard(card, link.href);
+    if (opened) {
+      flight = { card: opened };
+      zoomPending = 0;
+      queueFrame();
+      return;
+    }
+    if (!makeRoomForFrame()) return;
     createCard(link.href, card, link);
   } else if (data.type === 'probe' && finite(data.h)) {
     setFrameHeight(card, Math.min(Math.max(data.h, card.viewH), card.maxH));
@@ -695,6 +738,7 @@ document.getElementById('hud-reset').addEventListener('click', () => {
   root.y = 0;
   root.s = 1;
   zoomPending = 0;
+  flight = null;
   queueFrame();
 });
 const overlapButton = document.getElementById('hud-overlap');
