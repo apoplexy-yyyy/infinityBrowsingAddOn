@@ -21,6 +21,8 @@ const ALLOW_OVERLAP_KEY = 'allowOverlap';
 const PUSH_PASSES = 20;
 const PUSH_EASE = 0.25;
 const MIN_ROOT_SCALE = 0.1;
+// 最初のページの初期倍率。ブラウザの縮小表示と同じく、画面いっぱいに広い幅でレイアウトする
+const INITIAL_SCALE = 0.67;
 const MAX_SCALE = 40;
 const PAGE_H_STEP = 20000; // ページ自身の無限スクロールが一気に走らないよう、末尾に近づいた分だけ上限を広げる
 const MAX_PAGE_H = 500000;
@@ -737,11 +739,16 @@ window.addEventListener('message', (e) => {
   }
 });
 
-window.addEventListener('resize', () => {
-  root.w = innerWidth;
-  root.viewH = innerHeight;
-  root.h = Math.max(root.h, innerHeight);
+function fitRootToWindow() {
+  root.w = innerWidth / INITIAL_SCALE;
+  root.viewH = innerHeight / INITIAL_SCALE;
+  root.placeholder.style.height = `${root.viewH}px`;
+  root.h = Math.max(root.h, root.viewH);
   setFrameHeight(root, root.h);
+}
+
+window.addEventListener('resize', () => {
+  fitRootToWindow();
   queueFrame();
 });
 
@@ -750,7 +757,7 @@ document.getElementById('hud-reset').addEventListener('click', () => {
   anchor = root;
   root.x = 0;
   root.y = 0;
-  root.s = 1;
+  root.s = INITIAL_SCALE;
   zoomPending = 0;
   flight = null;
   queueFrame();
@@ -813,6 +820,8 @@ async function allowFramingInThisTab() {
   }
   if (!demoSite) await allowFramingInThisTab();
   root = createCard(url, null, null);
+  root.s = INITIAL_SCALE;
+  fitRootToWindow();
   anchor = root;
   queueFrame();
 })();
