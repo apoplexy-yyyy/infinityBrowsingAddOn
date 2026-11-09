@@ -630,16 +630,25 @@ const endPointer = (e) => {
 stage.addEventListener('pointerup', endPointer);
 stage.addEventListener('pointercancel', endPointer);
 
+function elementAt(x, y) {
+  const card = [...cards].reverse().find((c) => contains(c, x, y) && c.el.style.visibility !== 'hidden');
+  if (!card?.readyAt || !card.frame) return null;
+  return card.frame.contentDocument?.elementFromPoint((x - card.x) / card.s, (y - card.y) / card.s) || null;
+}
+
 // 指の下にある要素へクリックを渡す。リンクなら content.js がカードとして開く
 function tapAt(x, y) {
-  const card = [...cards].reverse().find((c) => contains(c, x, y) && c.el.style.visibility !== 'hidden');
-  if (!card?.readyAt || !card.frame) return;
-  const doc = card.frame.contentDocument;
-  const el = doc?.elementFromPoint((x - card.x) / card.s, (y - card.y) / card.s);
+  const el = elementAt(x, y);
   if (!el) return;
   if (el.matches('input,textarea,select,[contenteditable]')) el.focus();
   el.click();
 }
+
+// タッチ画面付きの PC でもマウスは使えるが、iframe がマウスを受けないのでリンク上のカーソルをここで出す
+stage.addEventListener('pointermove', (e) => {
+  if (!touchMode || e.pointerType !== 'mouse') return;
+  stage.classList.toggle('over-link', !pointers.size && Boolean(elementAt(e.clientX, e.clientY)?.closest('a[href]')));
+});
 
 if (touchMode) {
   document.body.classList.add('touch-mode');

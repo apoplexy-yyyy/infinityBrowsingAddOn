@@ -19,6 +19,10 @@ body {
   cursor: grabbing;
 }
 
+#stage.over-link {
+  cursor: pointer;
+}
+
 body.touch-mode .card.ready iframe {
   pointer-events: none;
 }
